@@ -7,11 +7,13 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import com.example.data.MusicTrack
 import kotlinx.coroutines.CoroutineScope
@@ -182,6 +184,8 @@ class MusicPlaybackManager {
             equalizerFx = Equalizer(0, audioSessionId).apply {
                 enabled = true
             }
+            applyEqualizerGainsToFx()
+
             bassBoostFx = BassBoost(0, audioSessionId).apply {
                 enabled = true
                 setStrength((_bassBoostStrength.value * 10).toShort())
@@ -387,6 +391,7 @@ class MusicPlaybackManager {
                     setOnPreparedListener { mp ->
                         applyVolumeAndBalance(mp)
                         attachAudioEffects(mp.audioSessionId)
+                        applyPlaybackParams()
                         mp.start()
                         _isPlaying.value = true
                         setupNextGaplessTrack()
@@ -603,10 +608,27 @@ class MusicPlaybackManager {
 
     fun setSpeed(value: Float) {
         _speed.value = value.coerceIn(0.25f, 3.0f)
+        applyPlaybackParams()
     }
 
     fun setPitch(value: Float) {
         _pitch.value = value.coerceIn(0.5f, 2.0f)
+        applyPlaybackParams()
+    }
+
+    private fun applyPlaybackParams() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            mediaPlayer?.let { mp ->
+                try {
+                    val params = mp.playbackParams
+                    params.speed = _speed.value
+                    params.pitch = _pitch.value
+                    mp.playbackParams = params
+                } catch (e: Exception) {
+                    Log.e("MusicPlaybackManager", "Error setting PlaybackParams: ${e.message}")
+                }
+            }
+        }
     }
 
     fun setEqualizerPreset(preset: String) {
@@ -626,6 +648,28 @@ class MusicPlaybackManager {
 
     fun updateEqualizerGains(gains: FloatArray) {
         _eqGains.value = gains.copyOf()
+        applyEqualizerGainsToFx()
+    }
+
+    private fun applyEqualizerGainsToFx() {
+        val eq = equalizerFx ?: return
+        try {
+            val numBands = eq.numberOfBands.toInt()
+            val gains = _eqGains.value
+            val range = eq.bandLevelRange
+            val minMb = range[0]
+            val maxMb = range[1]
+
+            for (i in 0 until numBands) {
+                if (i < gains.size) {
+                    val db = gains[i]
+                    val mB = (db * 100).toInt().coerceIn(minMb.toInt(), maxMb.toInt()).toShort()
+                    eq.setBandLevel(i.toShort(), mB)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MusicPlaybackManager", "Error applying EQ band levels: ${e.message}")
+        }
     }
 
     fun seekToProgress(progress: Float) {
