@@ -24,6 +24,9 @@ interface MusicDao {
     @Delete
     suspend fun deleteTrack(track: MusicTrack)
 
+    @Query("DELETE FROM music_tracks")
+    suspend fun clearAllTracks()
+
     // Playback Queues (Musicolet Multi-Queues)
     @Query("SELECT * FROM playback_queues ORDER BY queueId ASC")
     fun getAllQueues(): Flow<List<PlaybackQueue>>

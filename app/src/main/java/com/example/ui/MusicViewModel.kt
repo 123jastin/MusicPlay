@@ -41,15 +41,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _queueTracks = MutableStateFlow<List<MusicTrack>>(emptyList())
     val queueTracks = _queueTracks.asStateFlow()
 
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning = _isScanning.asStateFlow()
+
     init {
+        playbackManager.setContext(application)
         viewModelScope.launch {
-            // Seeding databases on first start-up
             try {
-                repository.prepopulateIfEmpty()
-                // Fetch the initial active queue and play its content
+                _isScanning.value = true
+                repository.scanDeviceAudioFiles(application)
                 loadQueue(selectedQueueId.value)
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Error prepopulating db: ${e.message}")
+                Log.e("MusicViewModel", "Error initializing local music: ${e.message}")
+            } finally {
+                _isScanning.value = false
             }
         }
         
@@ -276,6 +281,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTab(tab: String) {
         _currentTab.value = tab
+    }
+
+    fun scanLocalMusic(context: android.content.Context) {
+        viewModelScope.launch {
+            _isScanning.value = true
+            try {
+                repository.scanDeviceAudioFiles(context)
+                loadQueue(selectedQueueId.value)
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Error scanning device music: ${e.message}")
+            } finally {
+                _isScanning.value = false
+            }
+        }
     }
 
     override fun onCleared() {

@@ -15,7 +15,8 @@ data class MusicTrack(
     val durationSec: Int,
     val lyrics: String,
     val folder: String,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val contentUri: String = ""
 )
 
 @Entity(tableName = "playback_queues")

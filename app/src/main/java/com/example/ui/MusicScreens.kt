@@ -1,5 +1,10 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -28,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -36,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.example.data.MusicTrack
 import com.example.data.PlaybackQueue
 import com.example.data.Playlist
@@ -43,13 +50,110 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable
+fun EmptyMusicStateCard(
+    onScanClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SpaceCardBg),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LibraryMusic,
+                        contentDescription = "No music",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No Phone Music Found",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextLight,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Grant storage permission and scan your device to read local MP3, M4A, FLAC, and WAV audio files.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextMuted,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onScanClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Scan Phone Storage",
+                        style = TextStyle(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun MusicMainScreen(viewModel: MusicViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val currentTab by viewModel.currentTab.collectAsState()
     val tracks by viewModel.allTracks.collectAsState()
     val playlists by viewModel.allPlaylists.collectAsState()
     val queues by viewModel.allQueues.collectAsState()
     val selectedQueueId by viewModel.selectedQueueId.collectAsState()
+    val isScanning by viewModel.isScanning.collectAsState()
+
+    val permissionToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.scanLocalMusic(context)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, permissionToRequest) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.scanLocalMusic(context)
+        } else {
+            permissionLauncher.launch(permissionToRequest)
+        }
+    }
 
     // Player States in sync with playback manager
     val currentPlayingTrack by viewModel.playbackManager.currentTrack.collectAsState()
@@ -112,32 +216,57 @@ fun MusicMainScreen(viewModel: MusicViewModel, modifier: Modifier = Modifier) {
                         }
                     }
 
-                    // Multi-Queue Selector pill
-                    var showQueueSelectorDropdown by remember { mutableStateOf(false) }
-                    Box {
-                        Button(
-                            onClick = { showQueueSelectorDropdown = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                if (ContextCompat.checkSelfPermission(context, permissionToRequest) == PackageManager.PERMISSION_GRANTED) {
+                                    viewModel.scanLocalMusic(context)
+                                } else {
+                                    permissionLauncher.launch(permissionToRequest)
+                                }
+                            }
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.QueueMusic,
-                                contentDescription = "Active Queue",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            val activeQName = queues.find { it.queueId == selectedQueueId }?.name ?: "Queue"
-                            Text(
-                                text = activeQName,
-                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            if (isScanning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.Sync,
+                                    contentDescription = "Scan Media",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
+
+                        // Multi-Queue Selector pill
+                        var showQueueSelectorDropdown by remember { mutableStateOf(false) }
+                        Box {
+                            Button(
+                                onClick = { showQueueSelectorDropdown = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.QueueMusic,
+                                    contentDescription = "Active Queue",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                val activeQName = queues.find { it.queueId == selectedQueueId }?.name ?: "Queue"
+                                Text(
+                                    text = activeQName,
+                                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
 
                         DropdownMenu(
                             expanded = showQueueSelectorDropdown,
@@ -194,6 +323,7 @@ fun MusicMainScreen(viewModel: MusicViewModel, modifier: Modifier = Modifier) {
                         }
                     }
                 }
+            }
 
                 // Beautiful Musicolet top horizontal tabs
                 ScrollableTabRow(
@@ -343,51 +473,63 @@ fun MusicMainScreen(viewModel: MusicViewModel, modifier: Modifier = Modifier) {
                 .padding(paddingValues)
         ) {
             // Screen router
-            when (currentTab) {
-                "Queue" -> ActiveQueueScreen(
-                    viewModel = viewModel,
-                    idQueues = queues,
-                    selectedQueueId = selectedQueueId,
-                    onMoreClicked = { trackForOptions = it }
-                )
-                "Folders" -> FolderBrowsingScreen(
-                    tracks = tracks,
-                    onFolderPlay = { folder ->
-                        val folderTracks = tracks.filter { it.folder == folder }
-                        if (folderTracks.isNotEmpty()) {
-                            viewModel.playbackManager.playTrack(folderTracks.first(), folderTracks, 0)
+            if (tracks.isEmpty() && currentTab != "Playlists" && !isScanning) {
+                EmptyMusicStateCard(
+                    onScanClick = {
+                        if (ContextCompat.checkSelfPermission(context, permissionToRequest) == PackageManager.PERMISSION_GRANTED) {
+                            viewModel.scanLocalMusic(context)
+                        } else {
+                            permissionLauncher.launch(permissionToRequest)
                         }
                     }
                 )
-                "Songs" -> SongsListScreen(
-                    tracks = tracks,
-                    onTrackClicked = { track ->
-                        viewModel.playbackManager.playTrack(track, tracks, tracks.indexOf(track))
-                    },
-                    onMoreClicked = { trackForOptions = it }
-                )
-                "Albums" -> AlbumGridScreen(
-                    tracks = tracks,
-                    onPlayTrack = { track, list ->
-                        viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
-                    }
-                )
-                "Artists" -> ArtistGridScreen(
-                    tracks = tracks,
-                    onPlayTrack = { track, list ->
-                        viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
-                    }
-                )
-                "Playlists" -> PlaylistsScreen(
-                    playlists = playlists,
-                    allTracks = tracks,
-                    onCreateClick = { showAddPlaylistDialog = true },
-                    onPlaylistSelect = { playlistForTracks = it },
-                    onDeleteClick = { viewModel.deletePlaylist(it) },
-                    onPlayTrack = { track, list ->
-                        viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
-                    }
-                )
+            } else {
+                when (currentTab) {
+                    "Queue" -> ActiveQueueScreen(
+                        viewModel = viewModel,
+                        idQueues = queues,
+                        selectedQueueId = selectedQueueId,
+                        onMoreClicked = { trackForOptions = it }
+                    )
+                    "Folders" -> FolderBrowsingScreen(
+                        tracks = tracks,
+                        onFolderPlay = { folder ->
+                            val folderTracks = tracks.filter { it.folder == folder }
+                            if (folderTracks.isNotEmpty()) {
+                                viewModel.playbackManager.playTrack(folderTracks.first(), folderTracks, 0)
+                            }
+                        }
+                    )
+                    "Songs" -> SongsListScreen(
+                        tracks = tracks,
+                        onTrackClicked = { track ->
+                            viewModel.playbackManager.playTrack(track, tracks, tracks.indexOf(track))
+                        },
+                        onMoreClicked = { trackForOptions = it }
+                    )
+                    "Albums" -> AlbumGridScreen(
+                        tracks = tracks,
+                        onPlayTrack = { track, list ->
+                            viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
+                        }
+                    )
+                    "Artists" -> ArtistGridScreen(
+                        tracks = tracks,
+                        onPlayTrack = { track, list ->
+                            viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
+                        }
+                    )
+                    "Playlists" -> PlaylistsScreen(
+                        playlists = playlists,
+                        allTracks = tracks,
+                        onCreateClick = { showAddPlaylistDialog = true },
+                        onPlaylistSelect = { playlistForTracks = it },
+                        onDeleteClick = { viewModel.deletePlaylist(it) },
+                        onPlayTrack = { track, list ->
+                            viewModel.playbackManager.playTrack(track, list, list.indexOf(track))
+                        }
+                    )
+                }
             }
         }
     }

@@ -1,5 +1,9 @@
 package com.example.data
 
+import android.content.ContentUris
+import android.content.Context
+import android.provider.MediaStore
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
@@ -33,150 +37,97 @@ class MusicRepository(private val musicDao: MusicDao) {
 
     suspend fun deletePlaylist(playlist: Playlist) = musicDao.deletePlaylist(playlist)
 
-    suspend fun prepopulateIfEmpty() {
-        val currentTracks = allTracks.first()
-        if (currentTracks.isEmpty()) {
-            val defaultTracks = listOf(
-                MusicTrack(
-                    title = "Golden Horizons",
-                    artist = "Solar Flare",
-                    album = "Cosmic Dreams",
-                    genre = "Ambient",
-                    year = "2024",
-                    trackNumber = "1",
-                    durationSec = 145,
-                    lyrics = "Through the solar winds we glide,\nNo shadows here to hide.\nGolden rays of celestial light,\nGuide our ship across the night..\n\nSearching for the cosmic dawn,\nBefore the morning stars are gone.",
-                    folder = "Space Chill"
-                ),
-                MusicTrack(
-                    title = "Neon Nocturne",
-                    artist = "Retro Synth",
-                    album = "Cyberpunk Dreamscapes",
-                    genre = "Synthwave",
-                    year = "2025",
-                    trackNumber = "2",
-                    durationSec = 172,
-                    lyrics = "City rain on metal streets,\nBouncing to simulated beats.\nHolograms of glowing blue,\nWhispering of a past we knew..\n\nNeon eyes and silicon hearts,\nWhere the cybernetic journey starts.",
-                    folder = "Synth Wave"
-                ),
-                MusicTrack(
-                    title = "Starlight Sonata",
-                    artist = "Celeste",
-                    album = "Classical Reimagined",
-                    genre = "Classical",
-                    year = "2023",
-                    trackNumber = "3",
-                    durationSec = 194,
-                    lyrics = "A starlit sky, so vast, so deep,\nWhile the quiet meadows sleep.\nNotes of piano gently fall,\nAnswering the lonely galaxy's call.\n\nTime stands still in this cosmic song,\nWhere we feel we both belong.",
-                    folder = "Classical Ambient"
-                ),
-                MusicTrack(
-                    title = "Breeze of Kyoto",
-                    artist = "Zen Whispers",
-                    album = "Traditional Chill",
-                    genre = "Chillout",
-                    year = "2026",
-                    trackNumber = "4",
-                    durationSec = 155,
-                    lyrics = "Bamboo leaves in gentle wind,\nLeaves behind the thoughts we pinned.\nIn the silence of the shrine,\nPeace and harmony align.\n\nWater flows, a peaceful stream,\nFading into a summer dream.",
-                    folder = "Zen Garden"
-                ),
-                MusicTrack(
-                    title = "Digital Rain",
-                    artist = "Code Beats",
-                    album = "Lofi Coding Hooks",
-                    genre = "Lofi Hip-Hop",
-                    year = "2024",
-                    trackNumber = "5",
-                    durationSec = 138,
-                    lyrics = "Lines of code scroll down the screen,\nIn the quietest hour we've ever seen.\nRaindrops tapping on the glass,\nWaiting for the night to pass.\n\nCompile, run, and take a sip,\nA quiet lofi keyboard trip.",
-                    folder = "Coding Beats"
-                ),
-                MusicTrack(
-                    title = "Midnight Expressway",
-                    artist = "Nightdrive",
-                    album = "Synthesized Highways",
-                    genre = "Outrun",
-                    year = "2025",
-                    trackNumber = "6",
-                    durationSec = 165,
-                    lyrics = "Eighty-eight miles and counting fast,\nLeaving all our fears in the past.\nDashboard glowing, radio high,\nDriving straight into the crimson sky.\n\nFeel the engine, hear the sound,\nOn this highway, we are bound.",
-                    folder = "Synth Wave"
-                ),
-                MusicTrack(
-                    title = "Morning Espresso",
-                    artist = "Caffeine",
-                    album = "Acoustic Folk Café",
-                    genre = "Acoustic",
-                    year = "2023",
-                    trackNumber = "7",
-                    durationSec = 142,
-                    lyrics = "Warm cup sitting in my hand,\nSteaming like a sleepy land.\nSunlight creeping through the blind,\nLeaving all the stress behind.\n\nGuitar strings and coffee sweet,\nWalking on a dynamic street.",
-                    folder = "Acoustic Cafe"
-                ),
-                MusicTrack(
-                    title = "Ocean Waves",
-                    artist = "Deep Blue",
-                    album = "Nature Soundscapes",
-                    genre = "Ambient / Nature",
-                    year = "2026",
-                    trackNumber = "8",
-                    durationSec = 180,
-                    lyrics = "[Instrumental - Natural Ocean Wave Frequencies with Soft Floating Pad Synths for Sleep and Deep Relaxation]",
-                    folder = "Nature Chill"
-                ),
-                MusicTrack(
-                    title = "Sub-Zero Beat",
-                    artist = "Frostbite",
-                    album = "Glitch Hop Glacier",
-                    genre = "Electronic",
-                    year = "2024",
-                    trackNumber = "9",
-                    durationSec = 148,
-                    lyrics = "Frozen bass lines, icy claps,\nGlitching on your winter maps.\nSub-zero pulses in the snow,\nHearing frosty whispers grow.\n\nDance under the Northern sky,\nAs the crystal beats fly high.",
-                    folder = "Glacier Beats"
-                ),
-                MusicTrack(
-                    title = "Emerald Canopy",
-                    artist = "Jungle Pulse",
-                    album = "Organic Deep House",
-                    genre = "Deep House",
-                    year = "2025",
-                    trackNumber = "10",
-                    durationSec = 161,
-                    lyrics = "[Vocal Chop: Welcome to the forest deep, where the ancient rhythms sleep]\nGreen leaves dancing to the beat,\nTropical drums under our feet.\nDeep house grooves under the shade,\nIn the canopy nature made.",
-                    folder = "Jungle Beats"
-                )
-            )
-            musicDao.insertTracks(defaultTracks)
+    suspend fun scanDeviceAudioFiles(context: Context): Int {
+        val audioList = mutableListOf<MusicTrack>()
+        val contentResolver = context.contentResolver
+        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.TRACK
+        )
+
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
+
+        try {
+            contentResolver.query(uri, projection, selection, null, sortOrder)?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val yearColumn = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
+                val trackColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
+
+                while (cursor.moveToNext()) {
+                    val mediaId = cursor.getLong(idColumn)
+                    val rawTitle = cursor.getString(titleColumn) ?: "Unknown Track"
+                    val rawArtist = cursor.getString(artistColumn) ?: "Unknown Artist"
+                    val rawAlbum = cursor.getString(albumColumn) ?: "Unknown Album"
+                    val durationMs = cursor.getLong(durationColumn)
+                    val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
+                    val filePath = cursor.getString(dataColumn) ?: ""
+
+                    val folderName = if (filePath.isNotEmpty()) {
+                        java.io.File(filePath).parentFile?.name ?: "Internal Storage"
+                    } else "Internal Storage"
+
+                    val year = if (yearColumn >= 0) (cursor.getString(yearColumn) ?: "") else ""
+                    val trackNum = if (trackColumn >= 0) (cursor.getString(trackColumn) ?: "") else ""
+
+                    val mediaUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId).toString()
+
+                    val track = MusicTrack(
+                        title = if (rawTitle.isBlank() || rawTitle == "<unknown>") "Track $mediaId" else rawTitle,
+                        artist = if (rawArtist.isBlank() || rawArtist == "<unknown>") "Unknown Artist" else rawArtist,
+                        album = if (rawAlbum.isBlank() || rawAlbum == "<unknown>") "Unknown Album" else rawAlbum,
+                        genre = "Local Audio",
+                        year = year,
+                        trackNumber = trackNum,
+                        durationSec = durationSec,
+                        lyrics = "",
+                        folder = folderName,
+                        contentUri = mediaUri
+                    )
+                    audioList.add(track)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "Error scanning media store: ${e.message}")
         }
 
-        // Initialize queues. Musicolet excels at multi-queues. Let's create 4 default queues in Room!
-        val currentQueues = allQueues.first()
-        if (currentQueues.isEmpty()) {
-            val seededTracks = allTracks.first()
-            val trackIds = seededTracks.map { it.id }
+        // Wipe old tracks/demo data from DB and replace with real scanned phone music
+        musicDao.clearAllTracks()
+        if (audioList.isNotEmpty()) {
+            musicDao.insertTracks(audioList)
 
-            // Split tracks across 3 initial queues and keep 1 empty queue
-            val q1Ids = trackIds.take(4).joinToString(",")
-            val q2Ids = trackIds.drop(4).take(3).joinToString(",")
-            val q3Ids = trackIds.drop(7).joinToString(",")
+            val newTracks = allTracks.first()
+            val newTrackIds = newTracks.map { it.id }
 
-            musicDao.insertQueue(PlaybackQueue(queueId = 1, name = "Primary Queue", trackIdsString = q1Ids, currentIndex = 0, currentPositionMs = 0L))
-            musicDao.insertQueue(PlaybackQueue(queueId = 2, name = "Chill Sessions", trackIdsString = q2Ids, currentIndex = 0, currentPositionMs = 0L))
-            musicDao.insertQueue(PlaybackQueue(queueId = 3, name = "Cosmic Night", trackIdsString = q3Ids, currentIndex = 0, currentPositionMs = 0L))
-            musicDao.insertQueue(PlaybackQueue(queueId = 4, name = "Empty Workbench", trackIdsString = "", currentIndex = 0, currentPositionMs = 0L))
+            val currentQueues = allQueues.first()
+            if (currentQueues.isEmpty()) {
+                val q1Ids = newTrackIds.joinToString(",")
+                musicDao.insertQueue(PlaybackQueue(queueId = 1, name = "Primary Queue", trackIdsString = q1Ids, currentIndex = 0, currentPositionMs = 0L))
+                musicDao.insertQueue(PlaybackQueue(queueId = 2, name = "Favorites & Quick Queue", trackIdsString = "", currentIndex = 0, currentPositionMs = 0L))
+            } else {
+                val q1 = currentQueues.firstOrNull { it.queueId == 1 } ?: PlaybackQueue(queueId = 1, name = "Primary Queue", trackIdsString = "")
+                musicDao.insertQueue(q1.copy(trackIdsString = newTrackIds.joinToString(",")))
+            }
+        } else {
+            val currentQueues = allQueues.first()
+            if (currentQueues.isEmpty()) {
+                musicDao.insertQueue(PlaybackQueue(queueId = 1, name = "Primary Queue", trackIdsString = "", currentIndex = 0, currentPositionMs = 0L))
+            }
         }
 
-        // Initialize playlists. Let's create some default playlists!
-        val currentPlaylists = allPlaylists.first()
-        if (currentPlaylists.isEmpty()) {
-            val seededTracks = allTracks.first()
-            val synthTracksIds = seededTracks.filter { it.genre == "Synthwave" || it.genre == "Electronic" }.map { it.id }.joinToString(",")
-            val ambientTracksIds = seededTracks.filter { it.genre == "Ambient" || it.genre == "Classical" || it.genre == "Chillout" }.map { it.id }.joinToString(",")
-
-            musicDao.insertPlaylist(Playlist(name = "Midnight Drivers", description = "Synthwave, techno, and futuristic chillout sequences.", trackIdsString = synthTracksIds))
-            musicDao.insertPlaylist(Playlist(name = "Zen Sanctuary", description = "Peaceful harmonies and ambient melodies to study, rest, and meditate.", trackIdsString = ambientTracksIds))
-        }
+        return audioList.size
     }
 }
