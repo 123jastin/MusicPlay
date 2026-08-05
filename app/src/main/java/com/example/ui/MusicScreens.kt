@@ -1100,6 +1100,13 @@ fun AlbumGridScreen(
     onPlayTrack: (MusicTrack, List<MusicTrack>) -> Unit
 ) {
     val albums = tracks.groupBy { it.album }
+    val albumList = albums.keys.toList()
+
+    // Requirement 10: Preload Native Ads in advance for Albums screen
+    val adsState = rememberNativeAdsState(itemCount = albumList.size)
+
+    // Requirement 7, 8, 9, 11: Construct grid list inserting 1 Native Ad after every 5 real items (max 3 per screen)
+    val gridItems = buildGridItemsWithAds(realItems = albumList, failedAdIndices = adsState.failedAdIndices)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -1116,52 +1123,62 @@ fun AlbumGridScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(albums.keys.toList()) { album ->
-                val albumTracks = albums[album] ?: emptyList()
-                val representativeTrack = albumTracks.firstOrNull()
+            items(gridItems) { wrapper ->
+                when (wrapper) {
+                    is GridItemWrapper.RealItem -> {
+                        val album = wrapper.item
+                        val albumTracks = albums[album] ?: emptyList()
+                        val representativeTrack = albumTracks.firstOrNull()
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (representativeTrack != null) {
-                                onPlayTrack(representativeTrack, albumTracks)
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = SpaceCardBg),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column {
-                        TrackAlbumArt(
-                            track = representativeTrack,
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(130.dp)
-                                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                        )
+                                .clickable {
+                                    if (representativeTrack != null) {
+                                        onPlayTrack(representativeTrack, albumTracks)
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(containerColor = SpaceCardBg),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column {
+                                TrackAlbumArt(
+                                    track = representativeTrack,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(130.dp)
+                                        .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                                )
 
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = album,
-                                fontWeight = FontWeight.Bold,
-                                color = TextLight,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = representativeTrack?.artist ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${albumTracks.size} songs",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TealPrimary,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = album,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextLight,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = representativeTrack?.artist ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${albumTracks.size} songs",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TealPrimary,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
                         }
+                    }
+                    is GridItemWrapper.NativeAdItem -> {
+                        // Requirement 2, 4, 5, 6, 12: Render Native Ad card matching album card appearance
+                        val nativeAd = adsState.loadedAds[wrapper.adIndex]
+                        AlbumNativeAdCard(nativeAd = nativeAd)
                     }
                 }
             }
@@ -1176,6 +1193,13 @@ fun ArtistGridScreen(
     onPlayTrack: (MusicTrack, List<MusicTrack>) -> Unit
 ) {
     val artists = tracks.groupBy { it.artist }
+    val artistList = artists.keys.toList()
+
+    // Requirement 10: Preload Native Ads in advance for Artists screen
+    val adsState = rememberNativeAdsState(itemCount = artistList.size)
+
+    // Requirement 7, 8, 9, 11: Construct grid list inserting 1 Native Ad after every 5 real items (max 3 per screen)
+    val gridItems = buildGridItemsWithAds(realItems = artistList, failedAdIndices = adsState.failedAdIndices)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -1192,47 +1216,57 @@ fun ArtistGridScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(artists.keys.toList()) { artist ->
-                val artistTracks = artists[artist] ?: emptyList()
-                val representativeTrack = artistTracks.firstOrNull()
+            items(gridItems) { wrapper ->
+                when (wrapper) {
+                    is GridItemWrapper.RealItem -> {
+                        val artist = wrapper.item
+                        val artistTracks = artists[artist] ?: emptyList()
+                        val representativeTrack = artistTracks.firstOrNull()
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (representativeTrack != null) {
-                                onPlayTrack(representativeTrack, artistTracks)
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = SpaceCardBg),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        TrackAlbumArt(
-                            track = representativeTrack,
+                        Card(
                             modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                        )
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (representativeTrack != null) {
+                                        onPlayTrack(representativeTrack, artistTracks)
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(containerColor = SpaceCardBg),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                TrackAlbumArt(
+                                    track = representativeTrack,
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(CircleShape)
+                                )
 
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = artist,
-                            fontWeight = FontWeight.Bold,
-                            color = TextLight,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${artistTracks.size} songs connected",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = artist,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextLight,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${artistTracks.size} songs connected",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    is GridItemWrapper.NativeAdItem -> {
+                        // Requirement 2, 4, 5, 6, 12: Render Native Ad card matching artist card appearance
+                        val nativeAd = adsState.loadedAds[wrapper.adIndex]
+                        ArtistNativeAdCard(nativeAd = nativeAd)
                     }
                 }
             }

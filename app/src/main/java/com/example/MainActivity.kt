@@ -19,11 +19,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.MusicMainScreen
 import com.example.ui.MusicViewModel
 import com.example.ui.theme.MyApplicationTheme
+import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Requirement 1: Initialize Google Mobile Ads SDK using App ID
+        MobileAds.initialize(this) {}
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)

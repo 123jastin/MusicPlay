@@ -1,4 +1,3 @@
-
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -45,6 +44,7 @@ android {
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
+      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
   compileOptions {
@@ -92,6 +92,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation("androidx.media:media:1.7.0")
   implementation(libs.coil.compose)
+  implementation(libs.play.services.ads)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   implementation(libs.kotlinx.coroutines.android)
