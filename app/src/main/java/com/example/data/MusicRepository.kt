@@ -2,6 +2,7 @@ package com.example.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
@@ -47,6 +48,7 @@ class MusicRepository(private val musicDao: MusicDao) {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.YEAR,
@@ -62,10 +64,13 @@ class MusicRepository(private val musicDao: MusicDao) {
                 val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
                 val yearColumn = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
                 val trackColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
+
+                val albumArtUriBase = Uri.parse("content://media/external/audio/albumart")
 
                 while (cursor.moveToNext()) {
                     val mediaId = cursor.getLong(idColumn)
@@ -75,6 +80,9 @@ class MusicRepository(private val musicDao: MusicDao) {
                     val durationMs = cursor.getLong(durationColumn)
                     val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
                     val filePath = cursor.getString(dataColumn) ?: ""
+
+                    val albumId = if (albumIdColumn >= 0) cursor.getLong(albumIdColumn) else -1L
+                    val albumArtUri = if (albumId > 0) ContentUris.withAppendedId(albumArtUriBase, albumId).toString() else ""
 
                     val folderName = if (filePath.isNotEmpty()) {
                         java.io.File(filePath).parentFile?.name ?: "Internal Storage"
@@ -95,7 +103,10 @@ class MusicRepository(private val musicDao: MusicDao) {
                         durationSec = durationSec,
                         lyrics = "",
                         folder = folderName,
-                        contentUri = mediaUri
+                        contentUri = mediaUri,
+                        albumArtUri = albumArtUri,
+                        bitrate = "320 kbps",
+                        sampleRate = "44.1 kHz"
                     )
                     audioList.add(track)
                 }

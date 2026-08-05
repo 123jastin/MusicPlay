@@ -6,7 +6,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -24,30 +26,72 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
+import com.example.R
+import com.example.audio.RepeatMode
 import com.example.data.MusicTrack
 import com.example.data.PlaybackQueue
 import com.example.data.Playlist
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
+
+@Composable
+fun TrackAlbumArt(
+    track: MusicTrack?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val context = LocalContext.current
+    val artUri = track?.albumArtUri ?: ""
+    val contentUri = track?.contentUri ?: ""
+
+    if (artUri.isNotBlank()) {
+        AsyncImage(
+            model = artUri,
+            contentDescription = "Album Art",
+            contentScale = contentScale,
+            error = painterResource(id = R.drawable.img_default_album_art),
+            placeholder = painterResource(id = R.drawable.img_default_album_art),
+            modifier = modifier
+        )
+    } else if (contentUri.isNotBlank()) {
+        AsyncImage(
+            model = contentUri,
+            contentDescription = "Album Art",
+            contentScale = contentScale,
+            error = painterResource(id = R.drawable.img_default_album_art),
+            placeholder = painterResource(id = R.drawable.img_default_album_art),
+            modifier = modifier
+        )
+    } else {
+        Image(
+            painter = painterResource(id = R.drawable.img_default_album_art),
+            contentDescription = "Default Album Art",
+            contentScale = contentScale,
+            modifier = modifier
+        )
+    }
+}
+
 
 @Composable
 fun EmptyMusicStateCard(
@@ -390,22 +434,12 @@ fun MusicMainScreen(viewModel: MusicViewModel, modifier: Modifier = Modifier) {
                                 modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Cover Art placeholder with lovely visual gradient matching track
-                                val trackId = currentPlayingTrack?.id ?: 1
-                                Box(
+                                TrackAlbumArt(
+                                    track = currentPlayingTrack,
                                     modifier = Modifier
                                         .size(44.dp)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(getTrackGradient(trackId)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.MusicNote,
-                                        contentDescription = "Cover",
-                                        tint = Color.White.copy(alpha = 0.8f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                                )
 
                                 Spacer(modifier = Modifier.width(12.dp))
 
@@ -809,21 +843,24 @@ fun ActiveQueueScreen(
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(getTrackGradient(track.id)),
+                                    .clip(RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
+                                TrackAlbumArt(track = track, modifier = Modifier.fillMaxSize())
                                 if (isPlayingNow) {
-                                    Icon(
-                                        imageVector = Icons.Filled.VolumeUp,
-                                        contentDescription = "Playing",
-                                        tint = Color.White
-                                    )
-                                } else {
-                                    Text(
-                                        text = (index + 1).toString(),
-                                        style = TextStyle(color = Color.White, fontWeight = FontWeight.Bold)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.4f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.VolumeUp,
+                                            contentDescription = "Playing",
+                                            tint = TealPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -927,20 +964,12 @@ fun SongsListScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
+                    TrackAlbumArt(
+                        track = track,
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(getTrackGradient(track.id)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MusicNote,
-                            contentDescription = "Song",
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -1103,20 +1132,13 @@ fun AlbumGridScreen(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column {
-                        Box(
+                        TrackAlbumArt(
+                            track = representativeTrack,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(120.dp)
-                                .background(getTrackGradient(representativeTrack?.id ?: 1)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Album,
-                                contentDescription = "Album Cover",
-                                tint = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(48.dp)
-                            )
-                        }
+                                .height(130.dp)
+                                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                        )
 
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
@@ -1189,20 +1211,12 @@ fun ArtistGridScreen(
                         modifier = Modifier.padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
+                        TrackAlbumArt(
+                            track = representativeTrack,
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(CircleShape)
-                                .background(getTrackGradient(representativeTrack?.id ?: 2)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Person,
-                                contentDescription = "Artist",
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
+                        )
 
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -1337,7 +1351,7 @@ fun PlaylistsScreen(
     }
 }
 
-// FULL SCREEN EXPANDED PLAYER (Beautiful dark slider with EQ, Pitch, Speed, Lyrics, and Editors!)
+// FULL SCREEN EXPANDED PLAYER (Beautiful dark player with EQ, Audio Effects, Pitch, Speed, Lyrics, and Tag Editor!)
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun FullPlayerSheet(
@@ -1351,12 +1365,34 @@ fun FullPlayerSheet(
     val currentSecs by viewModel.playbackManager.currentPositionSec.collectAsState()
     val speedFactor by viewModel.playbackManager.speed.collectAsState()
     val pitchFactor by viewModel.playbackManager.pitch.collectAsState()
+    val repeatMode by viewModel.playbackManager.repeatMode.collectAsState()
+    val isShuffle by viewModel.playbackManager.isShuffle.collectAsState()
+    val crossfadeSec by viewModel.playbackManager.crossfadeSec.collectAsState()
+    val isGapless by viewModel.playbackManager.gaplessEnabled.collectAsState()
+    
     val eqGains by viewModel.playbackManager.eqGains.collectAsState()
+    val bassBoost by viewModel.playbackManager.bassBoostStrength.collectAsState()
+    val virtualizer by viewModel.playbackManager.virtualizerStrength.collectAsState()
+    val reverbPreset by viewModel.playbackManager.reverbPreset.collectAsState()
+    val balance by viewModel.playbackManager.balance.collectAsState()
     val sleepTimerRemaining by viewModel.playbackManager.sleepTimerMinutes.collectAsState()
 
     var showEqPanel by remember { mutableStateOf(false) }
     var showLyricsPanel by remember { mutableStateOf(false) }
     var showTimerPanel by remember { mutableStateOf(false) }
+    var showDetailsPanel by remember { mutableStateOf(false) }
+
+    // Rotating album art animation when playing
+    val infiniteTransition = rememberInfiniteTransition(label = "disc_spin")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 12000, easing = LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -1371,7 +1407,7 @@ fun FullPlayerSheet(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Top
             ) {
-                // Top controls back down
+                // Top controls bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1399,38 +1435,40 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // Beautiful custom Album Cover art centered
+                // Beautiful Real Album Cover art centered with optional spinning/elevation frame
                 Box(
                     modifier = Modifier
-                        .size(240.dp)
+                        .size(260.dp)
                         .clip(RoundedCornerShape(32.dp))
-                        .background(getTrackGradient(track.id))
-                        .padding(16.dp),
+                        .background(SpaceCardBg),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Filled.Album,
-                            contentDescription = "Rhythm vinyl",
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(96.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
+                    TrackAlbumArt(
+                        track = track,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (isPlaying) Modifier.rotate(rotationAngle * 0.1f) else Modifier)
+                    )
+                    
+                    if (track.genre.isNotBlank()) {
                         Text(
-                            text = track.genre,
+                            text = track.genre.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.6f),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color.Black.copy(alpha = 0.3f))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Track title & metadata
                 Text(
@@ -1450,12 +1488,14 @@ fun FullPlayerSheet(
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Interactive icons panel: Equalizer, Lyrics, Sleep Timer, Favorites
+                // Interactive icons panel: Equalizer, Lyrics, Sleep Timer, Favorites, Track Info
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceAround,
@@ -1470,11 +1510,11 @@ fun FullPlayerSheet(
                         )
                     }
 
-                    // Equalizer Trigger
+                    // Equalizer & Audio Effects Trigger
                     IconButton(onClick = { showEqPanel = !showEqPanel }) {
                         Icon(
                             imageVector = Icons.Filled.Tune,
-                            contentDescription = "Equalizer",
+                            contentDescription = "Equalizer & DSP",
                             tint = if (showEqPanel) TealPrimary else TextLight
                         )
                     }
@@ -1482,8 +1522,8 @@ fun FullPlayerSheet(
                     // Lyrics Trigger
                     IconButton(onClick = { showLyricsPanel = !showLyricsPanel }) {
                         Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = "Lyrics info",
+                            imageVector = Icons.Filled.LibraryBooks,
+                            contentDescription = "Lyrics",
                             tint = if (showLyricsPanel) TealPrimary else TextLight
                         )
                     }
@@ -1506,11 +1546,54 @@ fun FullPlayerSheet(
                             }
                         }
                     }
+
+                    // Track Metadata Specs Trigger
+                    IconButton(onClick = { showDetailsPanel = !showDetailsPanel }) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "Audio Info",
+                            tint = if (showDetailsPanel) TealPrimary else TextMuted
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Live Equalizer and slider simulation drawer inline!
+                // Audio Info/Specs Panel
+                AnimatedVisibility(visible = showDetailsPanel) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = SpaceCardBg)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Audio Format & File Info",
+                                fontWeight = FontWeight.Bold,
+                                color = TealPrimary,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Bitrate:", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                                Text("${track.bitrate} kbps", color = TextLight, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Sample Rate:", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                                Text("${track.sampleRate} Hz", color = TextLight, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Year / Track:", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                                Text("${track.year} (Track #${track.trackNumber})", color = TextLight, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Folder Path:", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text(track.folder, color = TextLight, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+
+                // Live Equalizer, BassBoost, Virtualizer & Crossfade panel
                 AnimatedVisibility(visible = showEqPanel) {
                     Card(
                         modifier = Modifier
@@ -1525,7 +1608,7 @@ fun FullPlayerSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Simulated 5-Band Equalizer",
+                                    text = "5-Band Equalizer & Audio FX",
                                     fontWeight = FontWeight.Bold,
                                     color = TealPrimary
                                 )
@@ -1553,18 +1636,18 @@ fun FullPlayerSheet(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                            // Draw 5 vertical/horizontal frequency band sliders
+                            // 5 EQ Frequency band sliders
                             val bandLabels = listOf("60Hz", "230Hz", "910Hz", "4kHz", "14kHz")
                             for (b in 0 until 5) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(text = bandLabels[b], style = MaterialTheme.typography.bodySmall, color = TextMuted)
-                                        val dbVal = eqGains[b]
+                                        val dbVal = eqGains.getOrElse(b) { 0f }
                                         Text(
                                             text = "${if (dbVal >= 0) "+" else ""}${dbVal.toInt()} dB",
                                             style = MaterialTheme.typography.bodySmall,
@@ -1572,11 +1655,13 @@ fun FullPlayerSheet(
                                         )
                                     }
                                     Slider(
-                                        value = eqGains[b],
+                                        value = eqGains.getOrElse(b) { 0f },
                                         onValueChange = { newVal ->
                                             val currentGains = eqGains.copyOf()
-                                            currentGains[b] = newVal
-                                            viewModel.playbackManager.updateEqualizerGains(currentGains)
+                                            if (b in currentGains.indices) {
+                                                currentGains[b] = newVal
+                                                viewModel.playbackManager.updateEqualizerGains(currentGains)
+                                            }
                                         },
                                         valueRange = -12f..12f,
                                         colors = SliderDefaults.colors(
@@ -1586,6 +1671,57 @@ fun FullPlayerSheet(
                                         )
                                     )
                                 }
+                            }
+
+                            HorizontalDivider(color = SpaceDarkBg, modifier = Modifier.padding(vertical = 12.dp))
+
+                            // Bass Boost & 3D Virtualizer
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Bass Boost", style = MaterialTheme.typography.bodySmall, color = TextLight, fontWeight = FontWeight.Bold)
+                                Text("${(bassBoost / 10).toInt()}%", style = MaterialTheme.typography.bodySmall, color = TealPrimary)
+                            }
+                            Slider(
+                                value = bassBoost.toFloat(),
+                                onValueChange = { viewModel.playbackManager.setBassBoost(it.toInt()) },
+                                valueRange = 0f..1000f,
+                                colors = SliderDefaults.colors(thumbColor = TealPrimary, activeTrackColor = TealPrimary, inactiveTrackColor = SpaceDarkBg)
+                            )
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("3D Virtualizer", style = MaterialTheme.typography.bodySmall, color = TextLight, fontWeight = FontWeight.Bold)
+                                Text("${(virtualizer / 10).toInt()}%", style = MaterialTheme.typography.bodySmall, color = TealPrimary)
+                            }
+                            Slider(
+                                value = virtualizer.toFloat(),
+                                onValueChange = { viewModel.playbackManager.setVirtualizer(it.toInt()) },
+                                valueRange = 0f..1000f,
+                                colors = SliderDefaults.colors(thumbColor = TealPrimary, activeTrackColor = TealPrimary, inactiveTrackColor = SpaceDarkBg)
+                            )
+
+                            // Crossfade & Gapless
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Crossfade Duration", style = MaterialTheme.typography.bodySmall, color = TextLight, fontWeight = FontWeight.Bold)
+                                Text("${crossfadeSec}s", style = MaterialTheme.typography.bodySmall, color = TealPrimary)
+                            }
+                            Slider(
+                                value = crossfadeSec.toFloat(),
+                                onValueChange = { viewModel.playbackManager.setCrossfade(it.toInt()) },
+                                valueRange = 0f..5f,
+                                steps = 4,
+                                colors = SliderDefaults.colors(thumbColor = TealPrimary, activeTrackColor = TealPrimary, inactiveTrackColor = SpaceDarkBg)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Gapless Track Transition", style = MaterialTheme.typography.bodySmall, color = TextLight, fontWeight = FontWeight.Bold)
+                                Switch(
+                                    checked = isGapless,
+                                    onCheckedChange = { viewModel.playbackManager.setGapless(it) },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = OnTeal, checkedTrackColor = TealPrimary)
+                                )
                             }
                         }
                     }
@@ -1646,12 +1782,12 @@ fun FullPlayerSheet(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Lyrics",
+                                text = "Song Lyrics",
                                 fontWeight = FontWeight.Bold,
                                 color = TealPrimary,
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
-                            val cleanLyrics = track.lyrics.ifBlank { "No lyrics saved. Tap the 3-dot menu and select edit tags to add static lyrics." }
+                            val cleanLyrics = track.lyrics.ifBlank { "No lyrics saved. Tap the 3-dot menu on top right to edit tags & lyrics." }
                             Text(
                                 text = cleanLyrics,
                                 style = TextStyle(fontSize = 15.sp, lineHeight = 22.sp, color = TextLight),
@@ -1664,9 +1800,9 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Classic Player Seek bar
+                // Seek bar & Timers
                 Column {
                     Slider(
                         value = progress,
@@ -1691,22 +1827,34 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Physical controls Play/Pause/Rewind/Pitch
+                // Complete Physical controls: Shuffle, Previous, Play/Pause, Next, Repeat
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Shuffle toggle button
+                    IconButton(onClick = { viewModel.playbackManager.toggleShuffle() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Shuffle,
+                            contentDescription = "Shuffle",
+                            tint = if (isShuffle) TealPrimary else TextMuted,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    // Previous button
                     IconButton(onClick = { viewModel.playbackManager.playPrev() }) {
                         Icon(imageVector = Icons.Filled.SkipPrevious, contentDescription = "Prev", tint = TextLight, modifier = Modifier.size(44.dp))
                     }
 
+                    // Main Play/Pause button
                     IconButton(
                         onClick = { viewModel.playbackManager.togglePlayPause() },
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(68.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary)
                     ) {
@@ -1718,14 +1866,30 @@ fun FullPlayerSheet(
                         )
                     }
 
+                    // Next button
                     IconButton(onClick = { viewModel.playbackManager.playNext() }) {
                         Icon(imageVector = Icons.Filled.SkipNext, contentDescription = "Next", tint = TextLight, modifier = Modifier.size(44.dp))
                     }
+
+                    // Repeat toggle button (OFF, ALL, ONE)
+                    IconButton(onClick = { viewModel.playbackManager.toggleRepeatMode() }) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = when (repeatMode) {
+                                    RepeatMode.ONE -> Icons.Filled.RepeatOne
+                                    else -> Icons.Filled.Repeat
+                                },
+                                contentDescription = "Repeat",
+                                tint = if (repeatMode != RepeatMode.NONE) TealPrimary else TextMuted,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                // Speed / Pitch tuning slider sliders (Iconic Musicolet!)
+                // Speed / Pitch tuning slider card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = SpaceCardBg)

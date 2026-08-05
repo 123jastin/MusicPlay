@@ -72,9 +72,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     _queueTracks.value = orderedTracks
                     
                     // If the playback manager queue has not been loaded, initialize it!
-                    if (playbackManager.activeQueueList.isEmpty() && orderedTracks.isNotEmpty()) {
-                        playbackManager.activeQueueList = orderedTracks
-                        playbackManager.currentIndex = activeQueue.currentIndex
+                    if (playbackManager.activeQueueList.value.isEmpty() && orderedTracks.isNotEmpty()) {
+                        playbackManager.setQueue(orderedTracks, activeQueue.currentIndex)
                     }
                 }
             }.collect()
@@ -96,10 +95,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val orderedTracks = idList.mapNotNull { map[it] }
                 
                 _queueTracks.value = orderedTracks
-                playbackManager.activeQueueList = orderedTracks
+                playbackManager.setQueue(orderedTracks, queue.currentIndex)
                 if (orderedTracks.isNotEmpty()) {
-                    val idx = queue.currentIndex.coerceIn(0, orderedTracks.size - 1)
-                    playbackManager.currentIndex = idx
                     playbackManager.seekToProgress(0f)
                 }
             }
@@ -176,8 +173,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val updatedQueue = queue.copy(trackIdsString = "", currentIndex = 0)
             repository.updateQueue(updatedQueue)
             _queueTracks.value = emptyList()
-            playbackManager.activeQueueList = emptyList()
-            playbackManager.currentIndex = 0
+            playbackManager.clearQueue()
             playbackManager.seekToProgress(0f)
         }
     }
@@ -211,7 +207,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (playbackManager.currentTrack.value?.id == trackId) {
                     playbackManager.playTrack(
                         updatedTrack,
-                        playbackManager.activeQueueList.map { if (it.id == trackId) updatedTrack else it },
+                        playbackManager.activeQueueList.value.map { if (it.id == trackId) updatedTrack else it },
                         playbackManager.currentIndex
                     )
                 }
@@ -272,7 +268,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             if (playbackManager.currentTrack.value?.id == track.id) {
                 playbackManager.playTrack(
                     updated,
-                    playbackManager.activeQueueList.map { if (it.id == track.id) updated else it },
+                    playbackManager.activeQueueList.value.map { if (it.id == track.id) updated else it },
                     playbackManager.currentIndex
                 )
             }

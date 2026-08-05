@@ -1,10 +1,16 @@
 package com.example.audio
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaPlayer
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
+import android.media.audiofx.PresetReverb
+import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.util.Log
 import com.example.data.MusicTrack
@@ -14,12 +20,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.InputStream
 import kotlin.math.sin
+import kotlin.random.Random
+
+enum class RepeatMode {
+    NONE, ALL, ONE
+}
 
 class MusicPlaybackManager {
 
     companion object {
-        const val SAMPLE_RATE = 22050 // High quality but lightweight
+        const val SAMPLE_RATE = 22050
         private const val BUFFER_SIZE = 1024
 
         @Volatile
@@ -35,8 +47,15 @@ class MusicPlaybackManager {
     private var appContext: Context? = null
     private var audioTrack: AudioTrack? = null
     private var mediaPlayer: MediaPlayer? = null
+    private var nextMediaPlayer: MediaPlayer? = null
     private var synthesisThread: Thread? = null
     private var isThreadRunning = false
+
+    // Audio effects hardware handles
+    private var equalizerFx: Equalizer? = null
+    private var bassBoostFx: BassBoost? = null
+    private var presetReverbFx: PresetReverb? = null
+    private var virtualizerFx: Virtualizer? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -47,35 +66,59 @@ class MusicPlaybackManager {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
 
-    private val _playbackProgress = MutableStateFlow(0f) // 0f to 1f
+    private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress = _playbackProgress.asStateFlow()
 
     private val _currentPositionSec = MutableStateFlow(0)
     val currentPositionSec = _currentPositionSec.asStateFlow()
 
+    // Playback modes
+    private val _repeatMode = MutableStateFlow(RepeatMode.ALL)
+    val repeatMode = _repeatMode.asStateFlow()
+
+    private val _isShuffle = MutableStateFlow(false)
+    val isShuffle = _isShuffle.asStateFlow()
+
+    private val _crossfadeSec = MutableStateFlow(0) // 0, 1, 2, 3, 5 seconds
+    val crossfadeSec = _crossfadeSec.asStateFlow()
+
+    private val _gaplessEnabled = MutableStateFlow(true)
+    val gaplessEnabled = _gaplessEnabled.asStateFlow()
+
     // Sound adjustments
-    private val _speed = MutableStateFlow(1.0f) // 0.25f - 3.0f
+    private val _speed = MutableStateFlow(1.0f)
     val speed = _speed.asStateFlow()
 
-    private val _pitch = MutableStateFlow(1.0f) // 0.5f - 2.0f
+    private val _pitch = MutableStateFlow(1.0f)
     val pitch = _pitch.asStateFlow()
 
-    // 5-band EQ gains: elements represent dB modifiers between -12dB and +12dB (UI)
     private val _eqGains = MutableStateFlow(floatArrayOf(0f, 0f, 0f, 0f, 0f))
     val eqGains = _eqGains.asStateFlow()
+
+    // Audio Effects
+    private val _bassBoostStrength = MutableStateFlow(0) // 0 - 100
+    val bassBoostStrength = _bassBoostStrength.asStateFlow()
+
+    private val _virtualizerStrength = MutableStateFlow(0) // 0 - 100
+    val virtualizerStrength = _virtualizerStrength.asStateFlow()
+
+    private val _reverbPreset = MutableStateFlow("None")
+    val reverbPreset = _reverbPreset.asStateFlow()
+
+    private val _balance = MutableStateFlow(0f) // -1.0 (Left) to +1.0 (Right)
+    val balance = _balance.asStateFlow()
 
     // Sleep timer in minutes remaining (0 means disabled)
     private val _sleepTimerMinutes = MutableStateFlow(0)
     val sleepTimerMinutes = _sleepTimerMinutes.asStateFlow()
 
-    // Current playlist or queue index tracking
+    // Current queue tracking
     var currentIndex: Int = 0
-    var activeQueueList = listOf<MusicTrack>()
+    private val _activeQueueList = MutableStateFlow<List<MusicTrack>>(emptyList())
+    val activeQueueList = _activeQueueList.asStateFlow()
 
-    // Local tracker variables for synthesis state
     private var phase = 0.0
     private var beatPosition = 0.0
-    private var synthTrackId = -1
 
     init {
         initAudioTrack()
@@ -100,6 +143,14 @@ class MusicPlaybackManager {
                             val durMs = mp.duration
                             _playbackProgress.value = (posMs.toFloat() / durMs.toFloat()).coerceIn(0f, 1f)
                             _currentPositionSec.value = (posMs / 1000)
+
+                            // Handle crossfade near end of song if configured
+                            val remMs = durMs - posMs
+                            val cfSec = _crossfadeSec.value
+                            if (cfSec > 0 && remMs <= (cfSec * 1000) && remMs > 500) {
+                                val fadeRatio = (remMs.toFloat() / (cfSec * 1000f)).coerceIn(0f, 1f)
+                                mp.setVolume(fadeRatio, fadeRatio)
+                            }
                         }
                     } catch (e: Exception) {
                         // Ignore transient state errors
@@ -125,25 +176,66 @@ class MusicPlaybackManager {
         }
     }
 
+    private fun attachAudioEffects(audioSessionId: Int) {
+        try {
+            releaseAudioEffects()
+            equalizerFx = Equalizer(0, audioSessionId).apply {
+                enabled = true
+            }
+            bassBoostFx = BassBoost(0, audioSessionId).apply {
+                enabled = true
+                setStrength((_bassBoostStrength.value * 10).toShort())
+            }
+            presetReverbFx = PresetReverb(0, audioSessionId).apply {
+                enabled = true
+                preset = getReverbPresetShort(_reverbPreset.value)
+            }
+            virtualizerFx = Virtualizer(0, audioSessionId).apply {
+                enabled = true
+                setStrength((_virtualizerStrength.value * 10).toShort())
+            }
+        } catch (e: Exception) {
+            Log.e("MusicPlaybackManager", "Failed attaching audio effects: ${e.message}")
+        }
+    }
+
+    private fun releaseAudioEffects() {
+        try {
+            equalizerFx?.release()
+            bassBoostFx?.release()
+            presetReverbFx?.release()
+            virtualizerFx?.release()
+        } catch (e: Exception) {}
+        equalizerFx = null
+        bassBoostFx = null
+        presetReverbFx = null
+        virtualizerFx = null
+    }
+
+    private fun getReverbPresetShort(presetName: String): Short {
+        return when (presetName.lowercase()) {
+            "small room" -> PresetReverb.PRESET_SMALLROOM
+            "medium room" -> PresetReverb.PRESET_MEDIUMROOM
+            "large hall" -> PresetReverb.PRESET_LARGEHALL
+            "plate" -> PresetReverb.PRESET_PLATE
+            else -> PresetReverb.PRESET_NONE
+        }
+    }
+
     private fun startSynthesisLoop() {
         isThreadRunning = true
         synthesisThread = Thread {
             val buffer = ShortArray(BUFFER_SIZE)
             while (isThreadRunning) {
                 val track = _currentTrack.value
-                // Only run synthesis when playing a synth track (without contentUri)
                 if (_isPlaying.value && track != null && track.contentUri.isBlank()) {
                     val pitchFactor = _pitch.value
                     val speedFactor = _speed.value
                     val eqMultipliers = _eqGains.value.map { db -> Math.pow(10.0, db / 20.0).toFloat() }.toFloatArray()
 
-                    synthTrackId = track.id
-
-                    // Synthesize PCM samples based on track theme and current phase
                     for (i in 0 until BUFFER_SIZE) {
                         var sample = 0.0
 
-                        // Calculate current tempo beats
                         val tempoBpm = when (track.id % 5) {
                             0 -> 120.0
                             1 -> 80.0
@@ -152,35 +244,31 @@ class MusicPlaybackManager {
                             else -> 110.0
                         } * speedFactor
 
-                        // Advance beat counter
                         beatPosition += (1.0 / SAMPLE_RATE) * (tempoBpm / 60.0)
                         if (beatPosition >= 16.0) {
                             beatPosition -= 16.0
                         }
 
-                        // Select key notes depending on the track ID
                         val keyRootFreq = when (track.id % 4) {
-                            0 -> 130.81 // C3
-                            1 -> 146.83 // D3
-                            2 -> 110.00 // A2
-                            else -> 116.54 // A#2
+                            0 -> 130.81
+                            1 -> 146.83
+                            2 -> 110.00
+                            else -> 116.54
                         } * pitchFactor
 
-                        // Melody tracker depending on beat position (Pentatonic notes mapping)
                         val barStep = (beatPosition * 4.0).toInt() % 16
                         val melodyIntervalMultiplier = when (barStep) {
-                            0 -> 1.0  // Root
-                            2 -> 1.25 // Major Third / Min Third approx
-                            4 -> 1.5  // Fifth
-                            6 -> 1.66 // Sixth
-                            8 -> 2.0  // Octave
-                            10 -> 2.5 // High third
-                            12 -> 1.5 // Fifth
-                            14 -> 1.8 // Seventh
-                            else -> 0.0 // Silent gap note
+                            0 -> 1.0
+                            2 -> 1.25
+                            4 -> 1.5
+                            6 -> 1.66
+                            8 -> 2.0
+                            10 -> 2.5
+                            12 -> 1.5
+                            14 -> 1.8
+                            else -> 0.0
                         }
 
-                        // Synthesis based on genre type
                         when {
                             track.genre.contains("Ambient", ignoreCase = true) -> {
                                 val carrier = sin(phase * keyRootFreq * 2.0 * Math.PI / SAMPLE_RATE)
@@ -192,10 +280,9 @@ class MusicPlaybackManager {
                                 }
                                 sample = (carrier + subOsc + lead) * 0.35
                             }
-                            track.genre.contains("Synthwave", ignoreCase = true) || track.genre.contains("Outrun", ignoreCase = true) -> {
+                            track.genre.contains("Synthwave", ignoreCase = true) -> {
                                 val bassFreq = if ((beatPosition.toInt() % 2) == 0) keyRootFreq else keyRootFreq * 1.12
                                 val bass = if (sin(phase * bassFreq * 2.0 * Math.PI / SAMPLE_RATE) > 0.0) 0.35 else -0.35
-                                
                                 var lead = 0.0
                                 if (melodyIntervalMultiplier > 0.0 && (barStep % 2 == 0)) {
                                     val leadFreq = keyRootFreq * 3.0 * melodyIntervalMultiplier
@@ -203,31 +290,6 @@ class MusicPlaybackManager {
                                     lead = (leadPhase - 0.5) * 0.3
                                 }
                                 sample = (bass + lead) * 0.3
-                            }
-                            track.genre.contains("Lofi", ignoreCase = true) -> {
-                                val chordFreq1 = keyRootFreq * 1.5
-                                val chordFreq2 = keyRootFreq * 2.0
-                                val pad = (sin(phase * keyRootFreq * 2.0 * Math.PI / SAMPLE_RATE) + 
-                                           sin(phase * chordFreq1 * 2.0 * Math.PI / SAMPLE_RATE) * 0.7 +
-                                           sin(phase * chordFreq2 * 2.0 * Math.PI / SAMPLE_RATE) * 0.5) * 0.25
-                                
-                                var melody = 0.0
-                                if (melodyIntervalMultiplier > 0.0) {
-                                    val melFreq = keyRootFreq * 4.0 * melodyIntervalMultiplier
-                                    melody = sin(phase * melFreq * 2.0 * Math.PI / SAMPLE_RATE) * 0.3 * (1.0 - (beatPosition % 0.5) * 2.0)
-                                }
-                                val crackle = (Math.random() - 0.5) * 0.03 * if (Math.random() > 0.98) 1.2 else 0.15
-                                sample = (pad + melody + crackle) * 0.4
-                            }
-                            track.genre.contains("Nature", ignoreCase = true) -> {
-                                val seaLfo = (sin(phase * 0.07 * 2.0 * Math.PI / SAMPLE_RATE) + 1.0) * 0.5
-                                val whiteNoise = (Math.random() - 0.5) * 0.3 * seaLfo
-                                var chime = 0.0
-                                if (Math.random() > 0.9992) {
-                                    val chimeFreq = 1200.0 + Math.random() * 800.0
-                                    chime = sin(phase * chimeFreq * 2.0 * Math.PI / SAMPLE_RATE) * 0.55
-                                }
-                                sample = (whiteNoise + chime) * 0.45
                             }
                             else -> {
                                 val fundamental = sin(phase * keyRootFreq * 2.0 * Math.PI / SAMPLE_RATE) * 0.4
@@ -243,16 +305,14 @@ class MusicPlaybackManager {
 
                         val bassFreqCut = 120.0
                         val trebleFreqCut = 1500.0
-                        
                         val currentSampleFreq = keyRootFreq * (if (melodyIntervalMultiplier > 0.0) melodyIntervalMultiplier else 1.0)
                         val sampleGainFactor = when {
                             currentSampleFreq < bassFreqCut -> eqMultipliers[0] * 0.8f + eqMultipliers[1] * 0.2f
                             currentSampleFreq > trebleFreqCut -> eqMultipliers[4] * 0.7f + eqMultipliers[3] * 0.3f
                             else -> eqMultipliers[2]
                         }
-                        
-                        sample *= sampleGainFactor
 
+                        sample *= sampleGainFactor
                         if (sample > 1.0) sample = 1.0
                         if (sample < -1.0) sample = -1.0
 
@@ -267,7 +327,7 @@ class MusicPlaybackManager {
                     try {
                         audioTrack?.write(buffer, 0, BUFFER_SIZE)
                     } catch (e: Exception) {
-                        Log.e("MusicPlaybackManager", "Error feeding PCM stream: ${e.message}")
+                        Log.e("MusicPlaybackManager", "PCM write error: ${e.message}")
                     }
 
                     scope.launch {
@@ -276,7 +336,7 @@ class MusicPlaybackManager {
                         if (newProgress >= 1f) {
                             _playbackProgress.value = 0f
                             _currentPositionSec.value = 0
-                            playNext()
+                            onTrackCompletion()
                         } else {
                             _playbackProgress.value = newProgress
                             _currentPositionSec.value = (newProgress * track.durationSec).toInt()
@@ -296,13 +356,22 @@ class MusicPlaybackManager {
         }
     }
 
+    fun setQueue(queueList: List<MusicTrack>, index: Int = 0) {
+        _activeQueueList.value = queueList
+        currentIndex = if (queueList.isEmpty()) 0 else index.coerceIn(0, queueList.size - 1)
+    }
+
+    fun clearQueue() {
+        _activeQueueList.value = emptyList()
+        currentIndex = 0
+    }
+
     fun playTrack(track: MusicTrack, queueList: List<MusicTrack>, index: Int) {
         _currentTrack.value = track
-        activeQueueList = queueList
+        _activeQueueList.value = queueList
         currentIndex = index
         _playbackProgress.value = 0f
         _currentPositionSec.value = 0
-        Log.d("MusicPlaybackManager", "Playing track: ${track.title} in queue size ${queueList.size} index $index")
 
         appContext?.let { ctx ->
             com.example.service.MusicPlaybackService.startService(ctx)
@@ -316,11 +385,14 @@ class MusicPlaybackManager {
                     setDataSource(appContext!!, Uri.parse(track.contentUri))
                     prepareAsync()
                     setOnPreparedListener { mp ->
+                        applyVolumeAndBalance(mp)
+                        attachAudioEffects(mp.audioSessionId)
                         mp.start()
                         _isPlaying.value = true
+                        setupNextGaplessTrack()
                     }
                     setOnCompletionListener {
-                        playNext()
+                        onTrackCompletion()
                     }
                     setOnErrorListener { _, _, _ ->
                         _isPlaying.value = true
@@ -339,10 +411,50 @@ class MusicPlaybackManager {
         }
     }
 
+    private fun setupNextGaplessTrack() {
+        val mp = mediaPlayer ?: return
+        val list = _activeQueueList.value
+        if (!_gaplessEnabled.value || list.isEmpty()) return
+
+        val nextIndex = getNextTrackIndex()
+        if (nextIndex >= 0 && nextIndex < list.size) {
+            val nextTrack = list[nextIndex]
+            if (nextTrack.contentUri.isNotBlank() && appContext != null) {
+                try {
+                    nextMediaPlayer?.release()
+                    nextMediaPlayer = MediaPlayer().apply {
+                        setDataSource(appContext!!, Uri.parse(nextTrack.contentUri))
+                        prepareAsync()
+                        setOnPreparedListener { nmp ->
+                            try {
+                                mp.setNextMediaPlayer(nmp)
+                            } catch (e: Exception) {
+                                Log.e("MusicPlaybackManager", "Gapless setup failed: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MusicPlaybackManager", "Next player error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun onTrackCompletion() {
+        when (_repeatMode.value) {
+            RepeatMode.ONE -> {
+                _currentTrack.value?.let { track ->
+                    playTrack(track, _activeQueueList.value, currentIndex)
+                }
+            }
+            else -> playNext()
+        }
+    }
+
     fun togglePlayPause() {
-        if (_currentTrack.value == null && activeQueueList.isNotEmpty()) {
-            val firstTrack = activeQueueList.first()
-            playTrack(firstTrack, activeQueueList, 0)
+        val list = _activeQueueList.value
+        if (_currentTrack.value == null && list.isNotEmpty()) {
+            playTrack(list.first(), list, 0)
             return
         }
         if (_currentTrack.value != null) {
@@ -362,20 +474,131 @@ class MusicPlaybackManager {
         }
     }
 
+    private fun getNextTrackIndex(): Int {
+        val list = _activeQueueList.value
+        if (list.isEmpty()) return 0
+        if (_isShuffle.value && list.size > 1) {
+            var nextIdx = Random.nextInt(list.size)
+            if (nextIdx == currentIndex) nextIdx = (currentIndex + 1) % list.size
+            return nextIdx
+        }
+        return (currentIndex + 1) % list.size
+    }
+
     fun playNext() {
-        if (activeQueueList.isNotEmpty()) {
-            currentIndex = (currentIndex + 1) % activeQueueList.size
-            val nextTrack = activeQueueList[currentIndex]
-            playTrack(nextTrack, activeQueueList, currentIndex)
+        val list = _activeQueueList.value
+        if (list.isNotEmpty()) {
+            val nextIdx = getNextTrackIndex()
+            currentIndex = nextIdx
+            val nextTrack = list[currentIndex]
+            playTrack(nextTrack, list, currentIndex)
         }
     }
 
     fun playPrev() {
-        if (activeQueueList.isNotEmpty()) {
-            currentIndex = if (currentIndex - 1 < 0) activeQueueList.size - 1 else currentIndex - 1
-            val prevTrack = activeQueueList[currentIndex]
-            playTrack(prevTrack, activeQueueList, currentIndex)
+        val list = _activeQueueList.value
+        if (list.isNotEmpty()) {
+            val prevIdx = if (currentIndex - 1 < 0) list.size - 1 else currentIndex - 1
+            currentIndex = prevIdx
+            val prevTrack = list[currentIndex]
+            playTrack(prevTrack, list, currentIndex)
         }
+    }
+
+    // Queue Management
+    fun playNextInQueue(track: MusicTrack) {
+        val currentList = _activeQueueList.value.toMutableList()
+        if (currentList.isEmpty()) {
+            playTrack(track, listOf(track), 0)
+            return
+        }
+        currentList.add(currentIndex + 1, track)
+        _activeQueueList.value = currentList
+    }
+
+    fun addToQueue(track: MusicTrack) {
+        val currentList = _activeQueueList.value.toMutableList()
+        currentList.add(track)
+        _activeQueueList.value = currentList
+    }
+
+    fun removeFromQueue(index: Int) {
+        val currentList = _activeQueueList.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList.removeAt(index)
+            _activeQueueList.value = currentList
+            if (index < currentIndex) {
+                currentIndex--
+            } else if (index == currentIndex && currentList.isNotEmpty()) {
+                val newIndex = currentIndex.coerceAtMost(currentList.size - 1)
+                playTrack(currentList[newIndex], currentList, newIndex)
+            }
+        }
+    }
+
+    // Playback Modes Toggles
+    fun toggleRepeatMode() {
+        _repeatMode.value = when (_repeatMode.value) {
+            RepeatMode.NONE -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.NONE
+        }
+    }
+
+    fun toggleShuffle() {
+        _isShuffle.value = !_isShuffle.value
+    }
+
+    fun setCrossfadeSec(seconds: Int) {
+        _crossfadeSec.value = seconds.coerceIn(0, 5)
+    }
+
+    fun setCrossfade(seconds: Int) {
+        setCrossfadeSec(seconds)
+    }
+
+    fun toggleGapless() {
+        _gaplessEnabled.value = !_gaplessEnabled.value
+    }
+
+    fun setGapless(enabled: Boolean) {
+        _gaplessEnabled.value = enabled
+    }
+
+    // Audio Effects Setters
+    fun setBassBoost(strength: Int) {
+        _bassBoostStrength.value = strength.coerceIn(0, 100)
+        try {
+            bassBoostFx?.setStrength((_bassBoostStrength.value * 10).toShort())
+        } catch (e: Exception) {}
+    }
+
+    fun setVirtualizer(strength: Int) {
+        _virtualizerStrength.value = strength.coerceIn(0, 100)
+        try {
+            virtualizerFx?.setStrength((_virtualizerStrength.value * 10).toShort())
+        } catch (e: Exception) {}
+    }
+
+    fun setReverbPreset(preset: String) {
+        _reverbPreset.value = preset
+        try {
+            presetReverbFx?.preset = getReverbPresetShort(preset)
+        } catch (e: Exception) {}
+    }
+
+    fun setBalance(bal: Float) {
+        _balance.value = bal.coerceIn(-1.0f, 1.0f)
+        mediaPlayer?.let { applyVolumeAndBalance(it) }
+    }
+
+    private fun applyVolumeAndBalance(mp: MediaPlayer) {
+        val bal = _balance.value
+        val left = if (bal > 0) 1.0f - bal else 1.0f
+        val right = if (bal < 0) 1.0f + bal else 1.0f
+        try {
+            mp.setVolume(left, right)
+        } catch (e: Exception) {}
     }
 
     fun setSpeed(value: Float) {
@@ -394,6 +617,8 @@ class MusicPlaybackManager {
             "pop" -> floatArrayOf(-1.5f, 2f, 5f, 3f, -1f)
             "rock" -> floatArrayOf(5f, 3f, -1f, 3f, 6f)
             "classical" -> floatArrayOf(4f, 3f, 1f, 3f, 4f)
+            "hip hop" -> floatArrayOf(6f, 4f, 0f, 2f, 3f)
+            "jazz" -> floatArrayOf(4f, 2f, -1f, 2f, 5f)
             else -> floatArrayOf(0f, 0f, 0f, 0f, 0f)
         }
         updateEqualizerGains(gains)
@@ -447,6 +672,7 @@ class MusicPlaybackManager {
     fun stopAll() {
         isThreadRunning = false
         _isPlaying.value = false
+        releaseAudioEffects()
         mediaPlayer?.let { mp ->
             try {
                 if (mp.isPlaying) mp.stop()
@@ -454,15 +680,18 @@ class MusicPlaybackManager {
             } catch (e: Exception) {}
         }
         mediaPlayer = null
+        nextMediaPlayer?.let { nmp ->
+            try { nmp.release() } catch (e: Exception) {}
+        }
+        nextMediaPlayer = null
         try {
             audioTrack?.apply {
                 stop()
                 release()
             }
-        } catch (e: Exception) {
-            // silent catch
-        }
+        } catch (e: Exception) {}
         audioTrack = null
         synthesisThread?.interrupt()
     }
 }
+

@@ -7,6 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.support.v4.media.MediaMetadataCompat
@@ -132,6 +136,30 @@ class MusicPlaybackService : Service() {
         }
     }
 
+    private fun loadAlbumArtBitmap(track: MusicTrack): Bitmap? {
+        if (track.albumArtUri.isNotBlank()) {
+            try {
+                contentResolver.openInputStream(Uri.parse(track.albumArtUri))?.use { inputStream ->
+                    return BitmapFactory.decodeStream(inputStream)
+                }
+            } catch (e: Exception) {}
+        }
+        if (track.contentUri.isNotBlank()) {
+            try {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(this, Uri.parse(track.contentUri))
+                val artBytes = retriever.embeddedPicture
+                retriever.release()
+                if (artBytes != null) {
+                    return BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
+                }
+            } catch (e: Exception) {}
+        }
+        return try {
+            BitmapFactory.decodeResource(resources, com.example.R.drawable.img_default_album_art)
+        } catch (e: Exception) { null }
+    }
+
     private fun updateMediaSessionAndNotification(track: MusicTrack?, isPlaying: Boolean) {
         if (track == null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -143,19 +171,27 @@ class MusicPlaybackService : Service() {
             return
         }
 
-        // Update MediaSession Metadata
-        val metadataBuilder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.artist)
-            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.album)
-            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.durationSec * 1000L)
+        serviceScope.launch(Dispatchers.IO) {
+            val artBitmap = loadAlbumArtBitmap(track)
 
-        mediaSession.setMetadata(metadataBuilder.build())
+            withContext(Dispatchers.Main) {
+                val metadataBuilder = MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.artist)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.album)
+                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.durationSec * 1000L)
 
-        updatePlaybackState(isPlaying, playbackManager.currentPositionSec.value)
+                if (artBitmap != null) {
+                    metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, artBitmap)
+                }
 
-        val notification = buildNotification(track, isPlaying)
-        startForeground(NOTIFICATION_ID, notification)
+                mediaSession.setMetadata(metadataBuilder.build())
+                updatePlaybackState(isPlaying, playbackManager.currentPositionSec.value)
+
+                val notification = buildNotification(track, isPlaying, artBitmap)
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }
     }
 
     private fun updatePlaybackState(isPlaying: Boolean, posSec: Int) {
@@ -175,7 +211,7 @@ class MusicPlaybackService : Service() {
         mediaSession.setPlaybackState(playbackState)
     }
 
-    private fun buildNotification(track: MusicTrack, isPlaying: Boolean): Notification {
+    private fun buildNotification(track: MusicTrack, isPlaying: Boolean, artBitmap: Bitmap?): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -198,7 +234,7 @@ class MusicPlaybackService : Service() {
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val playPauseTitle = if (isPlaying) "Pause" else "Play"
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(track.title)
             .setContentText("${track.artist} • ${track.album}")
             .setSubText(track.folder)
@@ -216,7 +252,12 @@ class MusicPlaybackService : Service() {
                     .setShowActionsInCompactView(0, 1, 2)
                     .setMediaSession(mediaSession.sessionToken)
             )
-            .build()
+
+        if (artBitmap != null) {
+            builder.setLargeIcon(artBitmap)
+        }
+
+        return builder.build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
